@@ -193,6 +193,19 @@ describe OpenSSL::PKey do
       it "has sensible values" do
         expect(pkey.e.to_i).to eq(65537)
         expect(pkey.n.to_i).to eq(pkey.p.to_i * pkey.q.to_i)
+        expect(pkey.dmp1).to_not be_nil
+        expect(pkey.dmq1).to_not be_nil
+        expect(pkey.iqmp).to_not be_nil
+      end
+
+      it "returns a key that can sign" do
+        sig = pkey.sign(OpenSSL::Digest::SHA256.new, "something very important")
+
+        expect(pkey.verify(OpenSSL::Digest::SHA256.new, sig, "something very important")).to be true
+      end
+
+      it "returns a key that can be read" do
+        expect { OpenSSL::PKey.read(pkey.to_pem) }.to_not raise_error
       end
     end
 

@@ -63,6 +63,8 @@ module OpenSSL::PKey
         k.set_key(ssh_key_mpi_decode(parts[0]), ssh_key_mpi_decode(parts[1]), ssh_key_mpi_decode(parts[2]))
         # p, q
         k.set_factors(ssh_key_mpi_decode(parts[4]), ssh_key_mpi_decode(parts[5]))
+        # I am mystified as to why we have to do this manually
+        k.set_crt_params(k.d.to_i % (k.p.to_i - 1), k.d.to_i % (k.q.to_i - 1), ssh_key_mpi_decode(parts[3]))
       end
     when "ssh-dss"
       parts = ssh_key_lv_decode(rest, 5)

@@ -59,21 +59,18 @@ module OpenSSL::PKey
     when "ssh-rsa"
       parts = ssh_key_lv_decode(rest, 6)
       OpenSSL::PKey::RSA.new.tap do |k|
-        k.n = ssh_key_mpi_decode(parts[0])
-        k.e = ssh_key_mpi_decode(parts[1])
-        k.d = ssh_key_mpi_decode(parts[2])
-        k.iqmp = ssh_key_mpi_decode(parts[3])
-        k.p = ssh_key_mpi_decode(parts[4])
-        k.q = ssh_key_mpi_decode(parts[5])
+        # n, e, d
+        k.set_key(ssh_key_mpi_decode(parts[0]), ssh_key_mpi_decode(parts[1]), ssh_key_mpi_decode(parts[2]))
+        # p, q
+        k.set_factors(ssh_key_mpi_decode(parts[4]), ssh_key_mpi_decode(parts[5]))
       end
     when "ssh-dss"
       parts = ssh_key_lv_decode(rest, 5)
       OpenSSL::PKey::DSA.new.tap do |k|
-        k.p = ssh_key_mpi_decode(parts[0])
-        k.q = ssh_key_mpi_decode(parts[1])
-        k.g = ssh_key_mpi_decode(parts[2])
-        k.pub_key = ssh_key_mpi_decode(parts[3])
-        k.priv_key = ssh_key_mpi_decode(parts[4])
+        # Self-explanatory
+        k.set_pqg(ssh_key_mpi_decode(parts[0]), ssh_key_mpi_decode(parts[1]), ssh_key_mpi_decode(parts[2]))
+        # pub_key, priv_key
+        k.set_key(ssh_key_mpi_decode(parts[3]), ssh_key_mpi_decode(parts[4]))
       end
     when /ecdsa-sha2-/
       parts = ssh_key_lv_decode(rest, 3)
@@ -197,14 +194,13 @@ module OpenSSL::PKey
     case parts.first
     when "ssh-rsa"
       OpenSSL::PKey::RSA.new.tap do |k|
-        k.e = ssh_key_mpi_decode(parts[1])
-        k.n = ssh_key_mpi_decode(parts[2])
+        # n, e
+        k.set_key(ssh_key_mpi_decode(parts[2]), ssh_key_mpi_decode(parts[1]), nil)
       end
     when "ssh-dss"
       OpenSSL::PKey::DSA.new.tap do |k|
-        k.p = ssh_key_mpi_decode(parts[1])
-        k.q = ssh_key_mpi_decode(parts[2])
-        k.g = ssh_key_mpi_decode(parts[3])
+        # Self-explanatory, one would hope
+        k.set_pqg(ssh_key_mpi_decode(parts[1]), ssh_key_mpi_decode(parts[2]), ssh_key_mpi_decode(parts[3]))
       end
     when /ecdsa-sha2-/
       begin

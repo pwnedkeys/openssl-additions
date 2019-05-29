@@ -56,6 +56,20 @@ until recently, but once I did, I wrote this.
 	key.private?  # => false
 
 
+## Parsing SSH keys
+
+The `OpenSSL::PKey.from_ssh_key` method can take an OpenSSH public or private
+key and spit out the appropriate subclass of `OpenSSL::PKey::PKey`.
+
+
+## YAML Serialization
+
+If you've ever tried to call `.to_yaml` on an `OpenSSL::X509::Certificate`,
+you'll have noticed that it doesn't contain anything very useful.  Well,
+if you `require "openssl/yaml_serialization"`, you'll get properly serialized
+certificates (and keys, and some number of other data types).
+
+
 # Contributing
 
 See `CONTRIBUTING.md`.

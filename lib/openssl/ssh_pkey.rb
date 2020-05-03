@@ -44,6 +44,124 @@ module OpenSSL::PKey
     end
   end
 
+  # Create a new `OpenSSL::PKey` from a PuTTY private key.
+  #
+  # Given a PuTTY version 2 key file ("PPK"), an equivalent instance of an
+  # `OpenSSL::PKey::PKey` subclass will be derived representing the same
+  # key parameters.
+  #
+  # @param s [String] the PuTTY PPK file contents to convert.
+  #
+  # @yield if the key data passed is an encrypted private key, the block
+  #   (if provided) will be called.
+  #
+  # @return [OpenSSL::PKey::PKey] the OpenSSL-compatible key object.
+  #
+  # @raise OpenSSL::PKey::PKeyError] if anything went wrong with the conversion
+  #   process.
+  #
+  def self.from_putty_key(s, &blk)
+    lines = s.gsub("\r\n", "\n").gsub("\r", "\n").split("\n")
+
+    unless lines.shift =~ /\APuTTY-User-Key-File-2: ([a-z0-9-]+)\z/
+      raise OpenSSL::PKey::PKeyError,
+            "No PuTTY key file header found"
+    end
+
+    keytype = $1
+
+    key = case keytype
+          when 'ssh-rsa'
+            OpenSSL::PKey::RSA.new
+          when 'ssh-dss'
+            OpenSSL::PKey::DSA.new
+          when /ecdsa-sha2-/
+            OpenSSL::PKey::EC.new
+          else
+            raise OpenSSL::PKey::PKeyError,
+                  "Unknown key type #{keytype}"
+          end
+
+    unless lines.shift =~ /\AEncryption: (none|aes256-cbc)\z/
+      raise OpenSSL::PKey::PKeyError,
+            "Missing or invalid PuTTY Encryption line"
+    end
+
+    cipher = $1
+
+    if cipher != "none"
+      yield if block_given?
+      raise OpenSSL::PKey::PKeyError,
+            "Encrypted PuTTY keys are not (yet) supported"
+    end
+
+    unless lines.shift =~ /\AComment: /
+      raise OpenSSL::PKey::PKeyError,
+            "Missing or invalid PuTTY Comment line"
+    end
+
+    unless lines.shift =~ /\APublic-Lines: (\d+)\z/
+      raise OpenSSL::PKey::PKeyError,
+            "Missing or invalid PuTTY Public-Lines line"
+    end
+
+    line_count = $1.to_i
+
+    if lines.length < line_count
+      raise OpenSSL::PKey::PKeyError,
+            "Invalid Public-Lines value, only #{lines.length} lines remaining in file"
+    end
+
+    pubkey = lines[0, line_count].join.unpack("m").first
+
+    lines = lines[line_count..-1]
+
+    unless lines.shift =~ /Private-Lines: (\d+)\z/
+      raise OpenSSL::PKey::PKeyError,
+            "Missing or invalid PuTTY Private-Lines line"
+    end
+
+    line_count = $1.to_i
+
+    if lines.length < line_count
+      raise OpenSSL::PKey::PKeyError,
+            "Invalid Private-Lines value, only #{lines.length} lines remaining in file"
+    end
+
+    privkey = lines[0, line_count].join.unpack("m").first
+
+    case key
+    when OpenSSL::PKey::RSA
+      _kt, e, n        = ssh_key_lv_decode(pubkey,  3).map { |c| ssh_key_mpi_decode(c) }
+      d, p, q, iqmp, _ = ssh_key_lv_decode(privkey, 4).map { |c| ssh_key_mpi_decode(c) }
+
+      key.set_key(n, e, d)
+      key.set_factors(p, q)
+      key.set_crt_params(d % (p - 1), d % (q - 1), iqmp)
+    when OpenSSL::PKey::DSA
+      _kt, p, q, g, y = ssh_key_lv_decode(pubkey,  5).map { |c| ssh_key_mpi_decode(c) }
+      x, _            = ssh_key_lv_decode(privkey, 1).map { |c| ssh_key_mpi_decode(c) }
+
+      key.set_key(y, x)
+      key.set_pqg(p, q, g)
+    when OpenSSL::PKey::EC
+      _kt, curve, w = ssh_key_lv_decode(pubkey, 3)
+      p, _          = ssh_key_lv_decode(privkey, 1).map { |c| ssh_key_mpi_decode(c) }
+
+      begin
+        key = OpenSSL::PKey::EC.new(SSH_CURVE_NAME_MAP[curve])
+      rescue TypeError
+        raise OpenSSL::PKey::PKeyError,
+              "Unknown curve identifier #{curve}"
+      end
+
+      key.public_key  = OpenSSL::PKey::EC::Point.new(key.group, w)
+      key.private_key = p
+    end
+
+    key
+  end
+
   private
 
   def self.decode_private_ssh_key(s, &blk)

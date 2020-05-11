@@ -15,6 +15,65 @@ class OpenSSL::PKey::RSA
     OpenSSL::X509::SPKI.new(self.public_key.to_der)
   end
 
+  # Give our best guess as to whether the given RSA private key is valid.
+  #
+  # Applies a set of heuristics to the (private) key, with a view to deciding
+  # whether it is correctly formed.
+  #
+  # Based on the RSA_check_key OpenSSL function.
+  #
+  # @param extended [Boolean] specify whether to only check problems which
+  #   cannot be corrected by re-calculating from the fundamental parameters of
+  #   the key (the private factors `p` and `q`, and the public exponent `e`).
+  #   The default is to consider any deviation from a completely correct key
+  #   to render the key invalid.
+  #
+  # @return [Boolean]
+  #
+  def valid?(extended = true)
+    # Must have factors and public exponent
+    return false if p.nil? || q.nil? || e.nil?
+
+    # Public exponent must be odd and greater than one
+    return false if e == 1
+
+    return false if e % 2 == 0
+
+    # Factors must be prime
+    return false unless p.prime?
+    return false unless q.prime?
+
+    # All the remaining checks are things that could be fixed with some
+    # arithmetic
+    return true if !extended
+
+    # Must have private exponent and a modulus
+    return false if d.nil? || n.nil?
+
+    # Public modulus must be the product of the two prime factors
+    return false unless n == p * q
+
+    # d * e must equal 1 mod (lcm(p-1,q-1))
+    return false unless e * d % (p.to_i-1).lcm(q.to_i-1) == 1
+
+    # CRT parameters are optional, but if present must be correct
+    unless dmp1.nil?
+      return false unless dmp1 == d % (p-1)
+    end
+
+    unless dmq1.nil?
+      return false unless dmq1 == d % (q-1)
+    end
+
+    unless iqmp.nil?
+      t, _ = self.class.egcd(q.to_i, p.to_i)
+      t %= p if t < 0
+      return false unless iqmp == t
+    end
+
+    return true
+  end
+
   # Construct a fully-featured RSA private key from fundamental values.
   #
   # Many parts of an RSA key are, in fact, derived from the basic numbers that

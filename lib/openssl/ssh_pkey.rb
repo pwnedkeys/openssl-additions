@@ -296,7 +296,7 @@ module OpenSSL::PKey
   end
 
   def self.decode_public_ssh_key(s)
-    if s =~ /\Assh-[a-z0-9-]+ /
+    if s =~ /\A(ssh|ecdsa)-[a-z0-9-]+ /
       # WHOOP WHOOP prefixed key detected.
       s = s.split(" ")[1]
     else

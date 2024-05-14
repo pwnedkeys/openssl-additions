@@ -296,7 +296,7 @@ module OpenSSL::PKey
   end
 
   def self.decode_public_ssh_key(s)
-    if s =~ /\A(ssh|ecdsa)-[a-z0-9-]+ /
+    if s =~ /\A(sk-)?(ssh|ecdsa)-/
       # WHOOP WHOOP prefixed key detected.
       s = s.split(" ")[1]
     else
@@ -313,27 +313,50 @@ module OpenSSL::PKey
 
     case parts.first
     when "ssh-rsa"
-      OpenSSL::PKey::RSA.new.tap do |k|
-        # n, e
-        k.set_key(ssh_key_mpi_decode(parts[2]), ssh_key_mpi_decode(parts[1]), nil)
-      end
-    when "ssh-dss"
-      OpenSSL::PKey::DSA.new.tap do |k|
-        # Self-explanatory, one would hope
-        k.set_pqg(ssh_key_mpi_decode(parts[1]), ssh_key_mpi_decode(parts[2]), ssh_key_mpi_decode(parts[3]))
-      end
+      e = ssh_key_mpi_decode(parts[1])
+      n = ssh_key_mpi_decode(parts[2])
+
+      # OpenSSL 3.0 stole our set_key, so we now have to play silly DER round-trip games... sigh
+      OpenSSL::PKey.read(
+        OpenSSL::ASN1::Sequence.new([
+          OpenSSL::ASN1::Sequence.new([
+            OpenSSL::ASN1::ObjectId.new("rsaEncryption"),
+            OpenSSL::ASN1::Null.new(nil),
+          ]),
+          OpenSSL::ASN1::BitString.new(
+            OpenSSL::ASN1::Sequence.new([
+              OpenSSL::ASN1::Integer.new(n),
+              OpenSSL::ASN1::Integer.new(e),
+            ]).to_der
+          ),
+        ]).to_der
+      )
     when /ecdsa-sha2-/
-      begin
-        OpenSSL::PKey::EC.new(SSH_CURVE_NAME_MAP[parts[1]]).tap do |k|
-          k.public_key = OpenSSL::PKey::EC::Point.new(k.group, parts[2])
-        end
-      rescue TypeError
-        raise OpenSSL::PKey::PKeyError.new,
-              "Unknown curve identifier #{parts[1]}"
+      curve_name = SSH_CURVE_NAME_MAP[parts[1]]
+      if curve_name.nil?
+        raise OpenSSL::PKey::PKeyError.new, "Unknown curve identifier #{parts[1]}"
       end
+      point = parts[2]
+
+      # OpenSSL 3.0 stole our set_key, so we now have to play silly DER round-trip games... sigh
+      OpenSSL::PKey.read(
+        OpenSSL::ASN1::Sequence.new([
+          OpenSSL::ASN1::Sequence.new([
+            OpenSSL::ASN1::ObjectId.new("id-ecPublicKey"),
+            OpenSSL::ASN1::ObjectId.new(curve_name),
+          ]),
+          OpenSSL::ASN1::BitString.new(point),
+        ]).to_der
+      )
+    when "ssh-ed25519", "sk-ssh-ed25519@openssh.com"
+      # The Ruby OpenSSL bindings don't appear to provide a way to directly construct
+      # an ed25519 key from its parts; instead, we've got to encode our own public key
+      # DER and then get OpenSSL to read it.  Thankfully, ed25519 keys aren't too
+      # complicated to construct in DER.
+      OpenSSL::PKey.read(OpenSSL::ASN1::Sequence.new([OpenSSL::ASN1::Sequence.new([OpenSSL::ASN1::ObjectId.new("ED25519")]), OpenSSL::ASN1::BitString.new(parts[1])]).to_der)
     else
       raise OpenSSL::PKey::PKeyError,
-            "Unknown key type #{parts.first.inspect}"
+            "Unsupported key type #{parts.first.inspect}"
     end
   end
 
